@@ -1,0 +1,76 @@
+!pip install gensim
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from gensim.models import KeyedVectors
+from sklearn.metrics import pairwise_distances
+from sklearn.cluster import KMeans
+from google.colab import drive
+drive.mount('/content/drive')
+# Load Tamil dataset
+PATH = '/content/drive/MyDrive/Colab Notebooks/tamil/'
+data = pd.read_csv(PATH + 'tamil.csv')
+print(data.head())
+# Extract texts
+texts = data['text'].astype(str).tolist()
+word_vectors = KeyedVectors.load_word2vec_format('/content/drive/MyDrive/Colab Notebooks/cc.ta.300 (1).vec.gz', binary=False)
+def get_sentence_embedding(word_vectors, sentence):
+    words = sentence.split()
+    word_vectors_list = [word_vectors[word] for word in words if word in word_vectors]
+    if word_vectors_list:
+        return np.mean(word_vectors_list, axis=0)
+    else:
+        return np.zeros(word_vectors.vector_size)
+embeddings = np.array([get_sentence_embedding(word_vectors, text) for text in texts])
+
+# Compute Euclidean distances
+euclidean_distances = pairwise_distances(embeddings, metric='euclidean')
+
+similarities = []
+threshold = 1.5  # Set a threshold for considering two texts similar
+for i in range(len(texts)):
+    for j in range(i + 1, len(texts)):
+        distance_score = euclidean_distances[i][j]
+        if distance_score < threshold:  # Lower distance means more similarity
+            similarities.append((texts[i], texts[j], distance_score))
+
+# Sort similarities in ascending order (lower distance is more similar)
+similarities = sorted(similarities, key=lambda x: x[2])
+print("Top 10 most similar text pairs:")
+for text1, text2, score in similarities[:10]:
+    print(f"'{text1}' and '{text2}' with a distance score of {score:.2f}")
+similar_texts_df = pd.DataFrame(similarities, columns=['Text1', 'Text2', 'Distance'])
+similar_texts_df.to_csv('similar_text_pairs_word2vec_euclidean.csv', index=False)
+
+# Apply K-Means Clustering
+n_clusters = 5  # Define number of clusters
+kmeans = KMeans(n_clusters=n_clusters)
+labels = kmeans.fit_predict(embeddings)
+
+# Add cluster labels to the DataFrame
+data['Cluster'] = labels
+matched_percentage = len(similarities) / (len(texts) * (len(texts) - 1) / 2) * 100  # Calculate matched percentage
+unmatched_percentage = 100 - matched_percentage
+
+labels = ['Matched Pairs', 'Unmatched Pairs']
+sizes = [matched_percentage, unmatched_percentage]
+colors = ['#ff9999', '#66b3ff']
+plt.figure(figsize=(7, 7))
+plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+plt.title('Matched vs Unmatched Text Pairs')
+plt.axis('equal')
+plt.show()
+top_n = 10
+top_distances = [sim[2] for sim in similarities[:top_n]]
+top_pairs = [f"Pair {i + 1}" for i in range(top_n)]
+
+plt.figure(figsize=(10, 6))
+plt.plot(top_pairs, top_distances, marker='o', color='b', label='Distance Score')
+plt.xticks(rotation=45)
+plt.xlabel('Text Pairs')
+plt.ylabel('Distance Score')
+plt.title(f'Top {top_n} Text Pairs with Distance Score')
+plt.grid(True)
+plt.legend()
+plt.show()
